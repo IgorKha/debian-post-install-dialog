@@ -8,7 +8,9 @@ GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-function ask() {
+base_software=(dialog) #software-properties-common)
+
+ask() {
     local prompt default reply
 
     if [[ ${2:-} = 'Y' ]]; then
@@ -40,8 +42,41 @@ function ask() {
             Y*|y*) return 0 ;;
             N*|n*) return 1 ;;
         esac
-
     done
+}
+
+check_base_software() {
+	local list=$@
+	for item in ${list[@]}
+	do
+		echo -e "\n${YELLOW}------Check install [$item]------\n${NC}"
+		dpkg --list $item >> /dev/null 2>&1
+		if [[ $? -eq 1 ]]; then
+			if ask "Need install [$item]" Y; then
+				apt-get install $item -y
+				echo -e "\n${GREEN}------Installing [$item] complite------\n${NC}"
+			else
+				echo -e "\n${RED}For correct work you need to install [$item]\n${NC}"
+				exit 1
+			fi
+		else
+			echo -e "\n${GREEN}------Already installed [$item]------\n${NC}"
+		fi
+	done
+}
+
+install() {
+	local list=$@
+	for item in ${list[@]}
+	do
+		dpkg --list $item >> /dev/null 2>&1
+		if [[ $? -eq 1 ]]; then
+				apt-get install $item -y
+				echo -e "\n${GREEN}------Installing [$(dpkg -s $item | grep '^Version:')] complite------\n${NC}"
+		else
+			echo -e "\n${GREEN}------ ${YELLOW}$item ${GREEN}already installed [$(dpkg -s $item | grep '^Version:')]------\n${NC}"
+		fi
+	done
 }
 
 
@@ -53,8 +88,8 @@ else
 	while [[ `ps aux | grep -i apt | wc -l` != 1 ]] ; do
     echo -e "\n${YELLOW}------Wait, apt is locked by another process------\n${NC}"
     sleep 15
-    ps aux | grep -i apt | wc -l
 	done
+	echo -e "\n${GREEN}------apt unblocked------\n${NC}"
 
 	if ask "Update and Upgrade ?" Y; then
 		echo -e "\n${YELLOW}------Updating and Upgrading------\n${NC}"
@@ -62,34 +97,12 @@ else
 		echo -e "\n${GREEN}------Updating and Upgrading complite------\n${NC}"
 	fi
 
-
-	echo -e "\n${YELLOW}------Check install dialog------\n${NC}"
-	RESULT=`dpkg --list dialog >> /dev/null 2>&1 && echo "True" || echo "False"`
-	if [[ "$RESULT" == "False" ]]; then
-	        if ask "Need install dialog" Y; then
-			    apt-get install dialog -y
-			else
-				echo -e "\n${RED}For correct work you need to install dialog\n${NC}"
-				exit 1
-			fi
-	else
-	    echo -e "\n${GREEN}------Already installed dialog------\n${NC}"
-	fi
-
-	RESULT=`dpkg --list software-properties-common >> /dev/null 2>&1 && echo "True" || echo "False"`
-	if [[ "$RESULT" == "False" ]]; then
-	        if ask "Need install software-properties-common" Y; then
-			    apt-get install software-properties-common -y
-			else
-				echo -e "\n${RED}For correct work you need to install software-properties-common\n${NC}"
-				# exit 1
-			fi
-	else
-	    echo -e "\n${GREEN}------Already installed software-properties-common------\n${NC}"
-	fi
+	check_base_software ${base_software[@]}
 
 	cmd=(dialog --separate-output --checklist "Please Select Software you want to install:" 22 76 16)
-	options=(1 "Git" off   # any option can be set to default to "on"
+	options=(1 "Git" off # any option can be set to default to "on"
+			 2 "mc htop net-tools" off
+			 3 "Docker" off
 		)
 		choices=$("${cmd[@]}" "${options[@]}" 2>&1 >/dev/tty)
 		clear
@@ -97,9 +110,26 @@ else
 		do
 		    case $choice in
 	        1)
-				echo -e "\n${YELLOW}------Installing Git $(apt show git | grep "Version"))------\n${NC}"
-				apt install git -y
-				echo -e "\n${GREEN}------Installing Git complite------\n${NC}"
+				install git
+				;;
+			2)
+				list2=(mc htop net-tools)
+				install ${list2[@]}
+				;;
+			3)
+				list3=(apt-transport-https \
+					ca-certificates \
+					curl \
+					gnupg \
+					lsb-release)
+				install ${list3[@]}
+				curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+				echo \
+  				"deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+  				$(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+  				apt-get update >> /dev/null 2>&1
+  				list3_2=(docker-ce docker-ce-cli containerd.io)
+  				install ${list3_2[@]}
 				;;
 	    esac
 	done
